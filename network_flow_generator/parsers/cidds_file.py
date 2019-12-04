@@ -10,28 +10,6 @@ from network_flow_generator.utils import pandas_apply_parallel
 log = Logger.get(__name__)
 
 
-class FlowData:
-
-    def __init__(self):
-        self._data = None
-        self._date_first_seen = None
-        self._duration = None
-        self._proto = None
-        self._src_ip_addr = None
-        self._src_pt = None
-        self._dst_ip_addr = None
-        self._dst_pt = None
-        self._packets = None
-        self._bytes = None
-        self._flows = None
-        self._flags = None
-        self._tos = None
-        self._class = None
-        self._attack_type = None
-        self._attack_id = None
-        self._attack_description = None
-
-
 class CiddsFile:
 
     # see https://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html
@@ -190,7 +168,7 @@ class CiddsFile:
         df["flags"] = df["flags"].map(self._convert_flags)
         return df
 
-    def read_chunks(self, chunksize=500000, nrows=None):
+    def _pandas_read_csv(self, chunksize=None, nrows=None):
         headers = [
             "date_first_seen",
             "duration",
@@ -210,7 +188,7 @@ class CiddsFile:
             "attack_description",
         ]
 
-        dtypes = {
+        _initial_dtypes = {
             "duration": "float32",
             "proto": "category",
             "src_pt": "uint16",
@@ -226,53 +204,47 @@ class CiddsFile:
             "attack_description": "str",
         }
 
-        if chunksize:
-            chunk_number = 0
-            chunks = pd.read_csv(
-                self._path,
-                header=None,
-                skiprows=1,
-                names=headers,
-                dtype=dtypes,
-                parse_dates=["date_first_seen"],
-                delimiter=",",
-                error_bad_lines=False,
-                nrows=nrows,
-                chunksize=chunksize,
-                low_memory=True)
+        return pd.read_csv(
+            self._path,
+            header=None,
+            skiprows=1,
+            names=headers,
+            dtype=_initial_dtypes,
+            parse_dates=["date_first_seen"],
+            delimiter=",",
+            error_bad_lines=False,
+            chunksize=chunksize,
+            nrows=nrows,
+            low_memory=True)
 
-            try:
-                while True:
-                    log.debug("Read chunk %d through %d of '%s'", chunk_number, chunksize + chunksize, self._path)
-                    chunk = next(chunks)
-                    yield chunk
-                    chunk_number += chunksize
-                    if chunk.shape[0] < chunksize:
-                        return
-            except StopIteration:
-                return
+    def read(self, nrows=None):
+        log.debug("Read dataframe from of '%s'", self._path)
+        df = self._pandas_read_csv(chunksize=None, nrows=nrows)
 
+        # apply data converters in parallel if the dataframe is big enough
+        if df.shape[0] >= 25000:
+            df = pandas_apply_parallel(df, self._apply_converters)
         else:
-            log.debug("Read dataframe from of '%s'", self._path)
-            df = pd.read_csv(
-                self._path,
-                header=None,
-                skiprows=1,
-                names=headers,
-                dtype=dtypes,
-                parse_dates=["date_first_seen"],
-                delimiter=",",
-                error_bad_lines=False,
-                nrows=nrows,
-                low_memory=True)
+            df = self._apply_converters(df)
 
-            # apply data converters in parallel if the dataframe is big enough
-            if df.shape[0] >= 25000:
-                df = pandas_apply_parallel(df, self._apply_converters)
-            else:
-                df = self._apply_converters(df)
+        return df
 
-            return df
+    def read_chunks(self, chunksize=500000, nrows=None):
+        assert chunksize and chunksize > 0
+
+        chunk_number = 0
+        chunks = self._pandas_read_csv(chunksize=chunksize, nrows=nrows)
+
+        try:
+            while True:
+                log.debug("Read chunk %d through %d from '%s'", chunk_number, chunksize + chunksize, self._path)
+                chunk = next(chunks)
+                yield chunk
+                chunk_number += chunksize
+                if chunk.shape[0] < chunksize:
+                    return
+        except StopIteration:
+            return
 
     @staticmethod
     def _read_files(files):
