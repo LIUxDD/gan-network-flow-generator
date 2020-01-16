@@ -1,0 +1,227 @@
+#!/usr/bin/env python
+
+import argparse
+import math
+import os
+import traceback
+
+import sys
+
+from network_flow_generator import __version__ as version
+from network_flow_generator.log import Logger, LogLevel
+
+
+if not sys.version_info[:2] >= (3, 6):
+    raise SystemExit("ERROR: Python>=3.6 is required to run this program. Your current Python version is: " + "".join(sys.version.splitlines()))
+
+
+def main():
+    ##
+    ## root level parser
+    ##
+
+    parser = argparse.ArgumentParser(
+        prog="network-flow-generator",
+        description="",
+        epilog="""
+
+""",
+        add_help=False,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument("-h", "--help", action="help", help="Show this help message and exit")
+    parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="Enable verbose mode")
+    parser.add_argument(
+        "--version",
+        action='version',
+        version='GAN Network Flow Generator {0}'.format(version),
+        help="Print the program version and quit")
+
+    # subparser for commands
+    subparsers = parser.add_subparsers(help="A command to perform", dest="command")
+
+
+    ##
+    ## parser for 'analyze' command
+    ##
+
+    analyze_parser = subparsers.add_parser("analyze", help="Analyze a data set by collecting metrics")
+    analyze_parser.add_argument(
+        "-f",
+        "--force",
+        dest="force_overwrite",
+        action="store_true",
+        default=False,
+        help="Overwrite existing files")
+    analyze_parser.add_argument(
+        "-i",
+        "--input-format",
+        dest="input_format",
+        required=False,
+        help="The input format of the data set. If not specified the format is inferred from the file extension. Available formats: cidds")
+    analyze_parser.add_argument(
+        "-m",
+        "--metrics",
+        dest="metrics",
+        required=True,
+        help="A comma separated list of metrics that shall be collected")
+    analyze_parser.add_argument(
+        "-o",
+        "--output-format",
+        dest="output_format",
+        default=["img"],
+        help="Format of the results. Can be used multiple times to specify multiple formats. Available formats: ")
+    analyze_parser.add_argument(
+        "data_set",
+        help="The input data set")
+    analyze_parser.add_argument(
+        "output",
+        help="The output path to store the results")
+
+
+    ##
+    ## parser for 'preprocess' command
+    ##
+
+    preprocess_parser = subparsers.add_parser("preprocess", help="Preprocess a dataset so it can be used with tensorflow")
+    preprocess_parser.add_argument(
+        "--chunk-size",
+        dest="chunk_size",
+        type=int,
+        default=500000,
+        help="The number of rows, that shall be processed at a time (Default: 500000)")
+    preprocess_parser.add_argument(
+        "--nrows",
+        dest="nrows",
+        type=int,
+        required=False,
+        help="The number of rows, that shall be processed")
+    preprocess_parser.add_argument(
+        "--format",
+        dest="format",
+        required=True,
+        help="The dataset format")
+    preprocess_parser.add_argument(
+        "-f",
+        "--force",
+        dest="force",
+        action="store_true",
+        default=False,
+        help="Overwrite an existing file")
+    preprocess_parser.add_argument(
+        "data_set",
+        help="The input data set")
+    preprocess_parser.add_argument(
+        "processed_data_set",
+        help="The output path for the processed data set")
+
+
+    ##
+    ## parser for 'generate' command
+    ##
+
+    generate_parser = subparsers.add_parser("generate", help="Generate samples from a trained model")
+
+
+    ##
+    ## parser for 'train' command
+    ##
+
+    train_parser = subparsers.add_parser("train", help="Train a model")
+
+
+    ##
+    ## parse the arguments and execute the commands
+    ##
+
+    args = parser.parse_args(sys.argv[1:])
+
+    # initialize logger
+    levels = [LogLevel.ERROR, LogLevel.INFO, LogLevel.DEBUG]
+    Logger.configure(levels[min(len(levels) - 1, args.verbose)])
+    log = Logger.get()
+
+    # execute the command
+    commands = {
+        "analyze": analyze,
+        "generate": generate,
+        "preprocess": preprocess,
+        "train": train
+    }
+    if args.command:
+        commands[args.command](args)
+
+
+def analyze(args):
+    log = Logger.get()
+
+    # check if input path exists
+    if not os.path.exists(args.data_set):
+        log.error("Data set file '%s' does not exist", args.data_set)
+        sys.exit(2)
+
+    try:
+        # metrics
+        # force
+        # input-format
+        # output-formats
+        # data_set
+        # output
+
+        if report_builder.errors:
+            log.info("~~ Finished with ERORRS ~~")
+            sys.exit(2)
+        else:
+            log.info("~~ Finished ~~")
+            sys.exit(0)
+
+    except Exception as e: # pylint: disable=broad-except
+        log.error("Failed analyze data set: %s", str(e))
+        if log.level >= LogLevel.DEBUG:
+            traceback.print_tb(e.__traceback__)
+        sys.exit(1)
+
+
+def preprocess(args):
+    log = Logger.get()
+
+    # check if input path exists
+    if not os.path.exists(args.data_set):
+        log.error("Data set file '%s' does not exist", args.data_set)
+        sys.exit(2)
+
+    try:
+        from network_flow_generator.io.cidds_file import CiddsFile
+        from network_flow_generator.process.preprocessor import CiddsBinaryPreprocessor, CiddsNumericPreprocessor, CiddsEmbeddingPreprocessor
+
+        formats = {
+            "CiddsBinary": CiddsBinaryPreprocessor,
+            "CiddsNumeric": CiddsNumericPreprocessor,
+            "CiddsEmbedding": CiddsEmbeddingPreprocessor,
+        }
+        processor = formats.get(args.format, None)
+        if not processor:
+            log.error("Unknown format '%s'. Available formats are: %s", args.data_set, ", ".join(formats.keys()))
+            sys.exit(2)
+
+        cidds_file = CiddsFile(args.data_set)
+        df_gen = cidds_file.read_chunks(chunksize=args.chunk_size, nrows=args.nrows)
+        processor(df_gen).save(args.processed_data_set, args.force)
+
+        log.info("~~ Finished ~~")
+        sys.exit(0)
+
+    except Exception as e: # pylint: disable=broad-except
+        log.error("Failed to preprocess data set: %s", str(e))
+        if log.level >= LogLevel.DEBUG:
+            traceback.print_tb(e.__traceback__)
+        sys.exit(1)
+
+def train(args):
+    pass
+
+def generate(args):
+    pass
+
+if __name__ == "__main__":
+    main()

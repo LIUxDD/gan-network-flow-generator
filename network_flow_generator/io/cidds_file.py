@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 
 from network_flow_generator.log import Logger
-from network_flow_generator.utils import pandas_apply_parallel
+from network_flow_generator.utils.pandas_utils import apply_parallel
 
-log = Logger.get(__name__)
+log = Logger.get()
 
 
 class CiddsFile:
@@ -65,6 +65,10 @@ class CiddsFile:
 
     def __exit__(self, *exc_info):
         self.close()
+
+    @property
+    def path(self):
+        return self._path
 
     @classmethod
     def _convert_ipv4_address(cls, value):
@@ -160,6 +164,7 @@ class CiddsFile:
 
     def _apply_converters(self, df):
         # apply converters
+        df["proto"] = df["proto"].str.strip().astype("category")
         df["src_ip_addr"] = df["src_ip_addr"].map(self._convert_ipv4_address)
         df["dst_ip_addr"] = df["dst_ip_addr"].map(self._convert_ipv4_address)
         df["dst_pt"] = df["dst_pt"].map(self._convert_destination_port).astype("uint16")
@@ -190,7 +195,7 @@ class CiddsFile:
 
         _initial_dtypes = {
             "duration": "float32",
-            "proto": "category",
+            "proto": "str",
             "src_pt": "uint16",
             "src_ip_addr": "str",
             "dst_ip_addr": "str",
@@ -223,7 +228,7 @@ class CiddsFile:
 
         # apply data converters in parallel if the dataframe is big enough
         if df.shape[0] >= 25000:
-            df = pandas_apply_parallel(df, self._apply_converters)
+            df = apply_parallel(df, self._apply_converters)
         else:
             df = self._apply_converters(df)
 
@@ -237,8 +242,15 @@ class CiddsFile:
 
         try:
             while True:
-                log.debug("Read chunk %d through %d from '%s'", chunk_number, chunksize + chunksize, self._path)
+                log.debug("Read chunk %d through %d from '%s'", chunk_number, chunk_number + chunksize, self._path)
                 chunk = next(chunks)
+
+                # apply data converters in parallel if the dataframe is big enough
+                if chunk.shape[0] >= 25000:
+                    chunk = apply_parallel(chunk, self._apply_converters)
+                else:
+                    chunk = self._apply_converters(chunk)
+
                 yield chunk
                 chunk_number += chunksize
                 if chunk.shape[0] < chunksize:
