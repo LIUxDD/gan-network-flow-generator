@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 
-def pandas_apply_parallel(df, func, num_processes=None):
+def apply_parallel(df, func, num_processes=None):
     """Apply a function on a Pandas DataFrame in parallel.
 
     Args:
