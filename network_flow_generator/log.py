@@ -38,6 +38,7 @@ class Logger:
             format_str = "%(asctime)s %(levelname)-8s [%(pathname)s:%(lineno)d]: %(message)s"
         else:
             format_str = "%(asctime)s %(levelname)-8s: %(message)s"
+            # set logging for tensorflow
             tf.get_logger().setLevel(logging.ERROR)
 
         if HAVE_COLORLOG and os.isatty(1):
@@ -64,5 +65,5 @@ class Logger:
         cls._root_logger.addHandler(stream_handler)
 
     @classmethod
-    def get(cls, name) -> logging.Logger:
-        return cls._root_logger.getChild(name)
+    def get(cls) -> logging.Logger:
+        return cls._root_logger
