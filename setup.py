@@ -28,10 +28,11 @@ setup(
     packages=find_packages(exclude=["tests"]),
     scripts=["bin/network-flow-generator"],
     install_requires=[
-        "numpy==1.17.*",
+        "numpy==1.18.*",
         "pandas==0.25.*",
-        "tensorflow==2.0.*",
+        "tensorflow==2.1.*",
         "holoviews==1.12.*",
+        "matplotlib==3.1.*",
     ],
     extras_require={
         "colorlog":  ["colorlog==4.0.*"],
